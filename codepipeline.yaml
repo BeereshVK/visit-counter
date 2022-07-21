@@ -18,7 +18,7 @@ Resources:
     Properties: 
       AuthType: PERSONAL_ACCESS_TOKEN
       ServerType: GITHUB
-      Token: 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
+      Token: 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
   
   CodeBuildServiceRole:
     Type: AWS::IAM::Role
