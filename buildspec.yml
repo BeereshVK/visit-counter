@@ -1,0 +1,18 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.8
+    commands:
+      - "echo Entered the install phase..."
+      - "yum update -y"
+      - "echo Logging in to Amazon ECR..."
+  pre_build:
+    commands:
+      - "$(aws ecr get-login --no-include-email --region $AWS_DEFAULT_REGION)"
+      - "docker build -t $docker_img_name:$docker_tag ."
+  build:
+    commands:
+      - docker tag $docker_img_name:$docker_tag $ecr_repo:latest
+      - docker push $ecr_repo:latest
