@@ -96,6 +96,9 @@ Resources:
                 Action: codestar-connections:*
               - Resource: "*"
                 Effect: Allow
+                Action: cloudformation:DescribeStacks
+              - Resource: "*"
+                Effect: Allow
                 Action:
                   - ecs:DescribeServices
                   - ecs:DescribeTaskDefinition
@@ -227,10 +230,10 @@ Resources:
                   Capabilities: CAPABILITY_NAMED_IAM
                   ParameterOverrides: !Sub |
                     {
-                      "ImageURI" : { "Fn::GetParam" : ["BuildOutput", "imagedefinitions.json", "ImageURI"] },
+                      "ImageURI" : { "Fn::GetParam" : ["BuildOutput", "imagedefinitions.json", "ImageURI"] }
                     }
                   RoleArn:
                     Fn::GetAtt: [ CloudformationExecutionRole, Arn ]
                   StackName: fargate-stack
-                  TemplatePath: SourceOutput::Cloudformation/fargate.yaml
+                  TemplatePath: SourceOutput::fargate.yaml
               RunOrder: 1
