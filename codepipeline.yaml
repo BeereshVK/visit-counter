@@ -22,7 +22,7 @@ Resources:
     Properties: 
       AuthType: PERSONAL_ACCESS_TOKEN
       ServerType: GITHUB
-      Token: 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
+      Token: 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
   
   CodeBuildServiceRole:
     Type: AWS::IAM::Role
@@ -185,7 +185,7 @@ Resources:
                 Provider: CodeStarSourceConnection
               Configuration:
                 FullRepositoryId: !Ref GitHubRepo
-                ConnectionArn: !Ref GitHubCredential
+                ConnectionArn: !Ref CodeStarSourceConnection
                 BranchName: !Ref GitHubBranch
               OutputArtifacts:
                 -
