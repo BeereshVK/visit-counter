@@ -47,6 +47,9 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                   - ecr:GetAuthorizationToken
+              - Resource: "*"
+                Effect: Allow
+                Action: codestar-connections:*
               - Resource: !Sub arn:aws:s3:::${CodePipelineArtifactBucket}/*
                 Effect: Allow
                 Action:
@@ -88,6 +91,9 @@ Resources:
                   - s3:GetObject
                   - s3:GetObjectVersion
                   - s3:GetBucketVersioning
+              - Resource: "*"
+                Effect: Allow
+                Action: codestar-connections:*
               - Resource: "*"
                 Effect: Allow
                 Action:
@@ -176,7 +182,7 @@ Resources:
                 Category: Source
                 Owner: AWS
                 Version: 1
-                Provider: !Ref CodeStarSourceConnection
+                Provider: CodeStarSourceConnection
               Configuration:
                 FullRepositoryId: !Ref GitHubRepo
                 ConnectionArn: !Ref GitHubCredential
@@ -189,15 +195,16 @@ Resources:
           Name: Build
           Actions:
             -
-              OutputArtifacts:
-                -
-                  Name: BuildOutput
               Name: BuildAction
               ActionTypeId:
                 Category: Build
                 Owner: AWS
                 Version: 1
                 Provider: CodeBuild
+              InputArtifacts:
+                - Name: SourceOutput
+              OutputArtifacts:
+                - Name: BuildOutput
               Configuration:
                 ProjectName: !Ref NginxCodeBuild
                 PrimarySource: SourceOutput
@@ -206,24 +213,24 @@ Resources:
           Name: Deploy
           Actions:
             - 
-              Name: Deploy
+              Name: DeployAction
               ActionTypeId:
                 Category: Deploy
                 Owner: AWS
                 Version: 1
                 Provider: CloudFormation
-                InputArtifacts:
-                  - Name: SourceOutput
-                  - Name: BuildOutput
-                Configuration:
-                    ActionMode: CREATE_UPDATE
-                    Capabilities: CAPABILITY_NAMED_IAM
-                    ParameterOverrides: !Sub |
-                      {
-                        "ImageURI" : { "Fn::GetParam" : ["BuildOutput", "imagedefinitions.json", "ImageURI"] },
-                      }
-                    RoleArn:
-                      Fn::GetAtt: [ CloudformationExecutionRole, Arn ]
-                      StackName: fargate-stack
-                      TemplatePath: SourceOutput::Cloudformation/fargate.yaml
-                RunOrder: 1
+              InputArtifacts:
+                - Name: SourceOutput
+                - Name: BuildOutput
+              Configuration:
+                  ActionMode: CREATE_UPDATE
+                  Capabilities: CAPABILITY_NAMED_IAM
+                  ParameterOverrides: !Sub |
+                    {
+                      "ImageURI" : { "Fn::GetParam" : ["BuildOutput", "imagedefinitions.json", "ImageURI"] },
+                    }
+                  RoleArn:
+                    Fn::GetAtt: [ CloudformationExecutionRole, Arn ]
+                  StackName: fargate-stack
+                  TemplatePath: SourceOutput::Cloudformation/fargate.yaml
+              RunOrder: 1
