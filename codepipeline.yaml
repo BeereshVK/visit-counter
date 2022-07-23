@@ -1,11 +1,15 @@
 AWSTemplateFormatVersion: 2010-09-09
-Description: Simple CI/CD pipeline
+Description: Continuous Deployment to Amazon ECS using AWS CodePipeline. 
 
 Parameters:
-  ContainerName:
+
+  GitHubRepo:
     Type: String
-    Default: nginx
-    Description: Container name to be populated by CodeBuild
+    Default: BeereshVK/visit-counter
+  
+  GitHubBranch:
+    Type: String
+    Default: main
     
 Resources:
   NginxECR:
@@ -23,28 +27,34 @@ Resources:
   CodeBuildServiceRole:
     Type: AWS::IAM::Role
     Properties:
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryPowerUser
+      Path: /
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
       Policies:
-        - PolicyName: CodeBuildServiceRolePolicy
+        - PolicyName: root
           PolicyDocument:
             Version: 2012-10-17
             Statement:
-              - Effect: Allow
+              - Resource: "*"
+                Effect: Allow
                 Action:
                   - logs:CreateLogGroup
                   - logs:CreateLogStream
                   - logs:PutLogEvents
-                Resource: '*'
-              - Effect: Allow
+                  - ecr:GetAuthorizationToken
+              - Resource: !Sub arn:aws:s3:::${CodePipelineArtifactBucket}/*
+                Effect: Allow
                 Action:
                   - s3:GetObject
-                  - s3:GetObjectVersion
                   - s3:PutObject
-                  - s3:GetBucketAcl
-                  - s3:GetBucketLocation
-                Resource: '*'
-              - Effect: Allow
+                  - s3:GetObjectVersion
+              - Resource: !Sub arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${NginxECR}
+                Effect: Allow
                 Action:
                   - ecr:GetDownloadUrlForLayer
                   - ecr:BatchGetImage
@@ -53,43 +63,43 @@ Resources:
                   - ecr:InitiateLayerUpload
                   - ecr:UploadLayerPart
                   - ecr:CompleteLayerUpload
-                Resource: !GetAtt NginxECR.Arn
-      AssumeRolePolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Principal: { Service: codebuild.amazonaws.com }
-            Action:
-              - sts:AssumeRole
               
   CodePipelineServiceRole:
     Type: AWS::IAM::Role
     Properties:
-      Policies:
-        - PolicyName: CodePipelineServiceRolePolicy
-          PolicyDocument:
-            Version: 2012-10-17
-            Statement:
-              - Effect: Allow
-                Action:
-                  - cloudwatch:*
-                Resource: '*'
-              - Effect: Allow
-                Action:
-                  - s3:*
-                Resource: '*'
-              - Effect: Allow
-                Action:
-                  - codebuild:BatchGetBuilds
-                  - codebuild:StartBuild
-                Resource: !GetAtt NginxCodeBuild.Arn
+      Path: /
       AssumeRolePolicyDocument:
         Version: 2012-10-17
         Statement:
           - Effect: Allow
-            Principal: { Service: codepipeline.amazonaws.com }
-            Action:
-              - sts:AssumeRole
+            Principal:
+              Service: codepipeline.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Resource:
+                  - !Sub arn:aws:s3:::${CodePipelineArtifactBucket}/*
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:GetBucketVersioning
+              - Resource: "*"
+                Effect: Allow
+                Action:
+                  - ecs:DescribeServices
+                  - ecs:DescribeTaskDefinition
+                  - ecs:DescribeTasks
+                  - ecs:ListTasks
+                  - ecs:RegisterTaskDefinition
+                  - ecs:UpdateService
+                  - codebuild:StartBuild
+                  - codebuild:BatchGetBuilds
+                  - iam:PassRole
               
   CodePipelineArtifactBucket:
     Type: AWS::S3::Bucket
@@ -119,11 +129,7 @@ Resources:
         PrivilegedMode: True
         Type: LINUX_CONTAINER
         EnvironmentVariables:
-          - Name: docker_img_name
-            Value: !Ref ContainerName
-          - Name: docker_tag
-            Value: latest
-          - Name: ecr_repo
+          - Name: ECR_REPOSITORY_URI
             Value: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${NginxECR}'
       LogsConfig:
         CloudWatchLogs:
@@ -136,8 +142,20 @@ Resources:
   CodeStarSourceConnection:
     Type: AWS::CodeStarConnections::Connection
     Properties:
-      ConnectionName: MyConnection
+      ConnectionName: MyGitHubConnection
       ProviderType: GitHub
+  
+  CloudformationExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudformation.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AdministratorAccess'
     
   CodePipeline:
     Type: AWS::CodePipeline::Pipeline
@@ -160,9 +178,9 @@ Resources:
                 Version: 1
                 Provider: !Ref CodeStarSourceConnection
               Configuration:
-                FullRepositoryId: BeereshVK/visit-counter
+                FullRepositoryId: !Ref GitHubRepo
                 ConnectionArn: !Ref GitHubCredential
-                BranchName: main
+                BranchName: !Ref BranchName
               OutputArtifacts:
                 -
                   Name: SourceOutput
@@ -171,9 +189,9 @@ Resources:
           Name: Build
           Actions:
             -
-              InputArtifacts:
+              OutputArtifacts:
                 -
-                  Name: SourceOutput
+                  Name: BuildOutput
               Name: BuildAction
               ActionTypeId:
                 Category: Build
@@ -184,3 +202,28 @@ Resources:
                 ProjectName: !Ref NginxCodeBuild
                 PrimarySource: SourceOutput
               RunOrder: 1
+        - 
+          Name: Deploy
+          Actions:
+            - 
+              Name: Deploy
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Version: 1
+                Provider: CloudFormation
+                InputArtifacts:
+                  - Name: SourceOutput
+                  - Name: BuildOutput
+                Configuration:
+                    ActionMode: CREATE_UPDATE
+                    Capabilities: CAPABILITY_NAMED_IAM
+                    ParameterOverrides: !Sub |
+                      {
+                        "ImageURI" : { "Fn::GetParam" : ["BuildOutput", "imagedefinitions.json", "ImageURI"] },
+                      }
+                    RoleArn:
+                      Fn::GetAtt: [ CloudformationExecutionRole, Arn ]
+                      StackName: fargate-stack
+                      TemplatePath: SourceOutput::Cloudformation/fargate.yaml
+                RunOrder: 1
